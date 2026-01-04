@@ -4,7 +4,7 @@ This is a very quick and very dirty implementation of libFFI binding for [WrenVM
 
 Inspired by [tsoding](https://github.com/tsoding)'s [video on WrenVM](https://www.youtube.com/watch?v=G4Ugv18tJ5E)
 
-This run on a modified version of WrenVM, the modification is only 1 line, see https://github.com/wren-lang/wren/commit/0a933f10eaa28295e487f20ba706262b05dc04f7
+This run on a modified version of WrenVM, the modification is only 1 line, see [the commit](https://github.com/thaolt/wren-lang-vm/commit/0a933f10eaa28295e487f20ba706262b05dc04f7)
 
 ## For the impatients, as I am
 
