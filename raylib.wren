@@ -23,6 +23,12 @@ foreign class Raylib is FFI {
     #!extern(dll="raylib", ret="f32")
     foreign static GetFrameTime()
 
+    #!extern(dll="raylib", ret="i32")
+    foreign static GetScreenWidth()
+
+    #!extern(dll="raylib", ret="i32")
+    foreign static GetScreenHeight()
+
     #!extern(dll="raylib", args="i32,i32,i32,i32,i64")
     foreign static DrawRectangle(x, y, width, height, color)
 }
