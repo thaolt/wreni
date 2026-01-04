@@ -451,15 +451,18 @@ void executeForeignFn(WrenVM* vm)
         void** arg_values = NULL;
         int* int_args = NULL;
         int64_t* i64_args = NULL;
+        float* f32_args = NULL;
         char** str_args = NULL;
         int arg_count = 0;
         ffi_type* ret_type = &ffi_type_void;
         
         // Parse return type
-        if (retSignature != NULL && strcmp(retSignature, "int") == 0) {
+        if (retSignature != NULL && strcmp(retSignature, "i32") == 0) {
             ret_type = &ffi_type_sint32;
         } else if (retSignature != NULL && strcmp(retSignature, "i64") == 0) {
             ret_type = &ffi_type_sint64;
+        } else if (retSignature != NULL && strcmp(retSignature, "f32") == 0) {
+            ret_type = &ffi_type_float;
         } else if (retSignature != NULL && strcmp(retSignature, "bool") == 0) {
             ret_type = &ffi_type_sint32;  // bool as int for simplicity
         }
@@ -476,6 +479,7 @@ void executeForeignFn(WrenVM* vm)
             arg_values = malloc(arg_count * sizeof(void*));
             int_args = malloc(arg_count * sizeof(int));
             i64_args = malloc(arg_count * sizeof(int64_t));
+            f32_args = malloc(arg_count * sizeof(float));
             str_args = malloc(arg_count * sizeof(char*));
             
             // Parse each argument type and set up values
@@ -497,7 +501,7 @@ void executeForeignFn(WrenVM* vm)
                     while (*trimmed == ' ') trimmed++;
                     
                     // Set argument type and get value from Wren stack
-                    if (strcmp(trimmed, "int") == 0) {
+                    if (strcmp(trimmed, "i32") == 0) {
                         arg_types[arg_index] = &ffi_type_sint32;
                         // Get int value from Wren stack (skip receiver)
                         if (arg_index + 1 < wrenGetSlotCount(vm)) {
@@ -511,6 +515,14 @@ void executeForeignFn(WrenVM* vm)
                             i64_args[arg_index] = (int64_t)AS_NUM(vm->apiStack[arg_index + 1]);
                             arg_values[arg_index] = &i64_args[arg_index];
                             fprintf(stderr, "i64 arg[%d] = %ld (0x%lx)\n", arg_index, i64_args[arg_index], i64_args[arg_index]);
+                        }
+                    } else if (strcmp(trimmed, "f32") == 0) {
+                        arg_types[arg_index] = &ffi_type_float;
+                        // Get float value from Wren stack (skip receiver)
+                        if (arg_index + 1 < wrenGetSlotCount(vm)) {
+                            f32_args[arg_index] = (float)AS_NUM(vm->apiStack[arg_index + 1]);
+                            arg_values[arg_index] = &f32_args[arg_index];
+                            fprintf(stderr, "f32 arg[%d] = %f\n", arg_index, f32_args[arg_index]);
                         }
                     } else if (strcmp(trimmed, "char*") == 0) {
                         arg_types[arg_index] = &ffi_type_pointer;
@@ -539,9 +551,8 @@ void executeForeignFn(WrenVM* vm)
             if (arg_values) free(arg_values);
             if (int_args) free(int_args);
             if (i64_args) free(i64_args);
+            if (f32_args) free(f32_args);
             if (str_args) free(str_args);
-            // NOTE: Don't dlclose(handle) here to avoid unloading libraries that need to stay loaded
-            // TODO: Implement proper library lifecycle management
             wrenSetSlotString(vm, 0, "FFI preparation failed");
             wrenAbortFiber(vm, 0);
             goto cleanup;
@@ -552,6 +563,8 @@ void executeForeignFn(WrenVM* vm)
         if (ret_type != &ffi_type_void) {
             if (ret_type == &ffi_type_sint64) {
                 result = malloc(sizeof(int64_t));
+            } else if (ret_type == &ffi_type_float) {
+                result = malloc(sizeof(float));
             } else {
                 result = malloc(sizeof(int));
             }
@@ -571,6 +584,14 @@ void executeForeignFn(WrenVM* vm)
                 if (strcmp(retSignature, "i64") == 0) {
                     wrenSetSlotDouble(vm, 0, (double)ret_val);
                 }
+            } else if (ret_type == &ffi_type_float) {
+                float ret_val = *(float*)result;
+                fprintf(stderr, "FFI call returned: %f\n", ret_val);
+                
+                // Set return value in Wren
+                if (strcmp(retSignature, "f32") == 0) {
+                    wrenSetSlotDouble(vm, 0, (double)ret_val);
+                }
             } else {
                 int ret_val = *(int*)result;
                 fprintf(stderr, "FFI call returned: %d\n", ret_val);
@@ -578,7 +599,7 @@ void executeForeignFn(WrenVM* vm)
                 // Set return value in Wren
                 if (strcmp(retSignature, "bool") == 0) {
                     wrenSetSlotBool(vm, 0, ret_val != 0);
-                } else if (strcmp(retSignature, "int") == 0) {
+                } else if (strcmp(retSignature, "i32") == 0) {
                     wrenSetSlotDouble(vm, 0, ret_val);
                 }
             }
@@ -589,6 +610,7 @@ void executeForeignFn(WrenVM* vm)
         if (arg_values) free(arg_values);
         if (int_args) free(int_args);
         if (i64_args) free(i64_args);
+        if (f32_args) free(f32_args);
         if (str_args) free(str_args);
         
         // NOTE: DLL handle is cached in FFIClassInfo, don't unload here
