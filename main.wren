@@ -1,6 +1,8 @@
 import "test" for Test
 import "raylib" for Raylib as RL
 
-System.print(RL.attributes.self)
 Test.print()
+
+RL.InitWindow(800, 600, "Wreni")
+RL.CloseWindow()
 
