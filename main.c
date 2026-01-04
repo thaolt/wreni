@@ -4,13 +4,75 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <ctype.h>
 
 #include <dlfcn.h>
 
 #include <ffi.h>
 
 #include <wren_vm.h>
+
+// Forward declarations
+void dumpFrameStack(WrenVM* vm);
+
+// Structure to store FFI class information
+typedef struct {
+    char* className;
+    char* moduleName;
+    ObjClass* classObj;
+} FFIClassInfo;
+
+// Global list to store FFI classes
+#define MAX_FFI_CLASSES 100
+static FFIClassInfo ffiClasses[MAX_FFI_CLASSES];
+static int ffiClassCount = 0;
+
+// Function to add a class to the FFI class list
+void addFFIClass(const char* moduleName, const char* className, ObjClass* classObj) {
+    if (ffiClassCount >= MAX_FFI_CLASSES) {
+        fprintf(stderr, "Warning: Maximum FFI classes reached, cannot add %s.%s\n", moduleName, className);
+        return;
+    }
+    
+    // Allocate memory for class name and module name
+    ffiClasses[ffiClassCount].className = strdup(className);
+    ffiClasses[ffiClassCount].moduleName = strdup(moduleName);
+    ffiClasses[ffiClassCount].classObj = classObj;
+    
+    fprintf(stderr, "Stored FFI class: %s.%s\n", moduleName, className);
+    ffiClassCount++;
+}
+
+// Function to find an FFI class by name
+FFIClassInfo* findFFIClass(const char* moduleName, const char* className) {
+    for (int i = 0; i < ffiClassCount; i++) {
+        if (strcmp(ffiClasses[i].moduleName, moduleName) == 0 && 
+            strcmp(ffiClasses[i].className, className) == 0) {
+            return &ffiClasses[i];
+        }
+    }
+    return NULL;
+}
+
+// Function to find an FFI class by its object pointer
+FFIClassInfo* findFFIClassByObject(ObjClass* classObj) {
+    for (int i = 0; i < ffiClassCount; i++) {
+        if (ffiClasses[i].classObj == classObj) {
+            return &ffiClasses[i];
+        }
+    }
+    return NULL;
+}
+
+// Function to print all stored FFI classes
+void printFFIClasses() {
+    fprintf(stderr, "=== Stored FFI Classes (%d) ===\n", ffiClassCount);
+    for (int i = 0; i < ffiClassCount; i++) {
+        fprintf(stderr, "%d: %s.%s (classObj: %p)\n", 
+                i, ffiClasses[i].moduleName, ffiClasses[i].className, 
+                (void*)ffiClasses[i].classObj);
+    }
+    fprintf(stderr, "=== End FFI Classes ===\n");
+}
 
 void writeFn(WrenVM* vm, const char* text)
 {
@@ -124,11 +186,44 @@ WrenForeignClassMethods bindForeignClassFn(WrenVM* vm, const char* module,
     }
     
     WrenForeignClassMethods result = {0};
-    result.allocate = &allocateForeignClass;
+    result.allocate = NULL;
     result.finalize = NULL;
     fprintf(stderr, "Binding foreign class %s\n", className);
 
-    
+    // Access the class object from the stack and check its superclass
+    bool extendsFFI = false;
+    ObjClass* classObj = NULL;
+    if (vm->fiber && vm->fiber->stackTop > vm->fiber->stack) {
+        Value classValue = vm->fiber->stackTop[-1];
+        if (IS_CLASS(classValue)) {
+            classObj = AS_CLASS(classValue);
+            if (classObj->superclass != NULL && classObj->superclass->name != NULL) {
+                printf("bindForeignClassFn: current super class = %s\n", classObj->superclass->name->value);
+                if (strcmp(classObj->superclass->name->value, "FFI") == 0) {
+                    extendsFFI = true;
+                }
+            } else {
+                printf("bindForeignClassFn: no super class\n");
+            }
+        }
+    }
+
+    // Only provide allocate function if class extends from FFI
+    if (extendsFFI && classObj != NULL) {
+        result.allocate = &allocateForeignClass;
+        fprintf(stderr, "Class %s extends FFI - providing allocate function\n", className);
+        
+        // Store the FFI class information for later use
+        addFFIClass(module, className, classObj);
+        
+        // Print all stored FFI classes for debugging
+        printFFIClasses();
+    } else {
+        fprintf(stderr, "Class %s does not extend FFI - no allocate function\n", className);
+    }
+
+    dumpFrameStack(vm);
+
     return result;
 }
 
@@ -141,11 +236,11 @@ void loadLibraryFn(WrenVM* vm)
 void logVarType(Value value) {
     if (IS_BOOL(value)) { fprintf(stderr, "Type = %s\n", "BOOL"); } else
     if (IS_CLASS(value)) { fprintf(stderr, "Type = %s\n", "CLASS"); } else
-    if (IS_CLOSURE(value)) { fprintf(stderr, "Type = %s\n", "CLOSURE"); } else
     if (IS_FIBER(value)) { fprintf(stderr, "Type = %s\n", "FIBER"); } else
     if (IS_FN(value)) { fprintf(stderr, "Type = %s\n", "FN"); } else
     if (IS_FOREIGN(value)) { fprintf(stderr, "Type = %s\n", "FOREIGN"); } else
     if (IS_MAP(value)) { fprintf(stderr, "Type = %s\n", "MAP"); } else
+    if (IS_CLOSURE(value)) { fprintf(stderr, "Type = %s\n", "CLOSURE"); } else
     if (IS_INSTANCE(value)) { fprintf(stderr, "Type = %s\n", "INSTANCE"); } else
     if (IS_LIST(value)) { fprintf(stderr, "Type = %s\n", "LIST"); } else
     if (IS_RANGE(value)) { fprintf(stderr, "Type = %s\n", "RANGE"); } else
@@ -157,11 +252,7 @@ void logVarType(Value value) {
     fprintf(stderr, "Type = %s\n", "UNKNOWN");
 }
 
-void executeForeignFn(WrenVM* vm)
-{
-    fprintf(stderr, "Executing foreign\n");
-
-    // TODO: dump the fiber stack
+void dumpFrameStack(WrenVM* vm) {
     if (vm->fiber != NULL) {
         fprintf(stderr, "=== Fiber Stack Dump ===\n");
         
@@ -205,7 +296,67 @@ void executeForeignFn(WrenVM* vm)
     } else {
         fprintf(stderr, "No active fiber to dump\n");
     }
+}
 
+void executeForeignFn(WrenVM* vm)
+{
+    fprintf(stderr, "Executing foreign\n");
+
+    const char* moduleName = "<unknown module>";
+    const char* className = "<unknown class>";
+    const char* methodName = "<unknown method>";
+
+    if (vm != NULL) {
+        // Determine the receiver and module/class information from the API stack
+        if (vm->apiStack != NULL) {
+            Value receiver = vm->apiStack[0];
+            ObjClass* targetClass = NULL;
+
+            if (IS_CLASS(receiver)) {
+                targetClass = AS_CLASS(receiver);
+            } else if (IS_INSTANCE(receiver)) {
+                targetClass = AS_INSTANCE(receiver)->obj.classObj;
+            }
+
+            if (targetClass != NULL) {
+                if (targetClass->name != NULL) {
+                    className = targetClass->name->value;
+                }
+
+                FFIClassInfo* ffiInfo = findFFIClassByObject(targetClass);
+                if (ffiInfo != NULL && ffiInfo->moduleName != NULL) {
+                    moduleName = ffiInfo->moduleName;
+                }
+            }
+        }
+
+        // Attempt to recover the method signature from the current call frame
+        if (vm->fiber != NULL && vm->fiber->numFrames > 0) {
+            CallFrame* frame = &vm->fiber->frames[vm->fiber->numFrames - 1];
+            if (frame->closure != NULL && frame->closure->fn != NULL && frame->ip != NULL) {
+                ObjFn* fn = frame->closure->fn;
+                uint8_t* ip = frame->ip;
+                if (ip >= fn->code.data + 3) {
+                    uint8_t opcode = *(ip - 3);
+
+                    bool isCall = (opcode >= CODE_CALL_0 && opcode <= CODE_CALL_16);
+                    if (isCall) {
+                        uint16_t symbol = (uint16_t)(((ip - 2)[0] << 8) | (ip - 1)[0]);
+                        if (symbol < vm->methodNames.count) {
+                            ObjString* name = vm->methodNames.data[symbol];
+                            if (name != NULL && name->value != NULL) {
+                                methodName = name->value;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fprintf(stderr, "Executing foreign method %s.%s.%s\n", moduleName, className, methodName);
+
+    dumpFrameStack(vm);
 }
 
 WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
@@ -215,13 +366,22 @@ WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
         return NULL;
     }
 
-    if (strcmp(module, "root") == 0 && strcmp(signature, "loadLibrary(_)") == 0) {
-        return &loadLibraryFn;
-    }
-
     fprintf(stderr, "Binding foreign method %s.%s.%s\n", module, className, signature);
+    
+    // Check if this class is in our stored FFI classes list
+    FFIClassInfo* ffiClass = findFFIClass(module, className);
+    if (ffiClass == NULL) {
+        fprintf(stderr, "Class %s.%s not found in FFI classes list - returning NULL\n", module, className);
+        return NULL;
+    }
+    
+    fprintf(stderr, "Found FFI class %s.%s in storage - providing foreign method\n", module, className);
     fprintf(stderr, "Binding foreign method %p\n", executeForeignFn);
+    
+    ObjClass* cls = AS_CLASS(vm->fiber->stackTop[-1]);
+    fprintf(stderr, "Class: %s\n", cls->name->value);
 
+    // TODO: How could we extract the method attributes here?
 
     return executeForeignFn;
 }
@@ -237,10 +397,11 @@ int main()
     config.bindForeignMethodFn = &bindForeignMethodFn;
     
     WrenVM* vm = wrenNewVM(&config);
-    
-    // WrenLoadModuleResult moduleResult = loadModuleFn(vm, "main");
+    WrenInterpretResult result;
 
-    WrenInterpretResult result = wrenInterpret(vm, "start", "import \"main\"");
+    result = wrenInterpret(vm, NULL, "class FFI {}\n");
+
+    result = wrenInterpret(vm, "start", "import \"main\"");
     
     if (result == WREN_RESULT_COMPILE_ERROR) {
         fprintf(stderr, "Compile error!\n");

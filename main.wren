@@ -1,8 +1,10 @@
-import "test" for Test
 import "raylib" for Raylib as RL
 
-Test.print()
-
 RL.InitWindow(800, 600, "Wreni")
+
+while (!RL.WindowShouldClose()) {
+    RL.BeginDrawing()
+    RL.EndDrawing()
+}
 RL.CloseWindow()
 
