@@ -16,13 +16,13 @@ WREN_OBJ_FILES := $(patsubst $(WREN_SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(wildcard $(W
                   $(patsubst $(WREN_OPT_DIR)/%.c,$(BUILD_DIR)/%.o,$(wildcard $(WREN_OPT_DIR)/*.c))
 
 $(BUILD_DIR)/wreni: main.c $(BUILD_DIR)/libwren.a | $(BUILD_DIR)
-	$(CC) main.c -o $(BUILD_DIR)/wreni -I$(WREN_INC) -L$(BUILD_DIR) -lwren -lm
+	$(CC) main.c -g -o $(BUILD_DIR)/wreni -I$(WREN_INC) -I$(WREN_SRC_DIR) -I$(WREN_OPT_DIR) -L$(BUILD_DIR) -lwren -lm
 
 $(BUILD_DIR)/%.o: $(WREN_SRC_DIR)/%.c | $(BUILD_DIR)
-	$(CC) -I$(WREN_INC) -I$(WREN_SRC_DIR) -I$(WREN_OPT_DIR) -c $< -o $@
+	$(CC) -g -DWREN_OPT_META -I$(WREN_INC) -I$(WREN_SRC_DIR) -I$(WREN_OPT_DIR) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(WREN_OPT_DIR)/%.c | $(BUILD_DIR)
-	$(CC) -I$(WREN_INC) -I$(WREN_SRC_DIR) -I$(WREN_OPT_DIR) -c $< -o $@
+	$(CC) -g -DWREN_OPT_META -I$(WREN_INC) -I$(WREN_SRC_DIR) -I$(WREN_OPT_DIR) -c $< -o $@
 
 $(BUILD_DIR)/libwren.a: $(WREN_OBJ_FILES) | $(BUILD_DIR)
 	ar rcs $(BUILD_DIR)/libwren.a $^ 
