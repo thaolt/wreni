@@ -1,7 +1,10 @@
 import "raylib" for Raylib as RL
 
 RL.InitWindow(800, 600, "Wreni")
-RL.BeginDrawing()
-RL.EndDrawing()
+while (!RL.WindowShouldClose()) {
+    RL.BeginDrawing()
+    RL.ClearBackground(0xFF0000FF)
+    RL.EndDrawing()
+}
 RL.CloseWindow()
 

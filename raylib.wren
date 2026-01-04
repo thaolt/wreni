@@ -8,9 +8,12 @@ foreign class Raylib is FFI {
     #!extern(dll="raylib")
     foreign static EndDrawing()
 
-    #!extern(dll="raylib")
+    #!extern(dll="raylib", ret="bool")
     foreign static WindowShouldClose()
 
     #!extern(dll="raylib")
     foreign static CloseWindow()
+
+    #!extern(dll="raylib", args="i64")
+    foreign static ClearBackground(color)
 }

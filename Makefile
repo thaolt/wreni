@@ -16,7 +16,7 @@ WREN_OBJ_FILES := $(patsubst $(WREN_SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(wildcard $(W
                   $(patsubst $(WREN_OPT_DIR)/%.c,$(BUILD_DIR)/%.o,$(wildcard $(WREN_OPT_DIR)/*.c))
 
 $(BUILD_DIR)/wreni: main.c $(BUILD_DIR)/libwren.a | $(BUILD_DIR)
-	$(CC) main.c -g -o $(BUILD_DIR)/wreni -I$(WREN_INC) -I$(WREN_SRC_DIR) -I$(WREN_OPT_DIR) -L$(BUILD_DIR) -lwren -lm
+	$(CC) main.c -g -o $(BUILD_DIR)/wreni -I$(WREN_INC) -I$(WREN_SRC_DIR) -I$(WREN_OPT_DIR) -L$(BUILD_DIR) -lwren -lm -lffi
 
 $(BUILD_DIR)/%.o: $(WREN_SRC_DIR)/%.c | $(BUILD_DIR)
 	$(CC) -g -DWREN_OPT_META -I$(WREN_INC) -I$(WREN_SRC_DIR) -I$(WREN_OPT_DIR) -c $< -o $@
