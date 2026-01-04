@@ -2,6 +2,10 @@
 
 This is a very quick and very dirty implementation of libFFI binding for (WrenVM)[https://wren.io/]. It is not even close to alpha-stage quality code. Just a fun experiment. Do not use it for anything. Only run on Linux x86_64, maybe MinGW support in the future.
 
+Inspired by (tsoding)[https://github.com/tsoding]'s (video on WrenVM)[https://www.youtube.com/watch?v=G4Ugv18tJ5E]
+
+This run on a modified version of WrenVM, the modification is only 1 line, see
+
 ## For the impatients, as I am
 
 You will need a C compiler and wget (for downloading raylib)
@@ -14,7 +18,7 @@ make run
 
 ## How it can be used
 
-First, a Wren class must be `foreign` and extended for `FFI` (just a dummy empty class for marking lazy loading foreign methods at runtime).
+First, a Wren class must be `foreign` and extended from `FFI` class (just a dummy empty class for marking lazy loading foreign methods at runtime).
 
 ```wren
 foreign class Raylib is FFI {
@@ -47,7 +51,7 @@ RL.InitWindow(800, 600, "Wreni")
 RL.SetTargetFPS(60)
 while (!RL.WindowShouldClose()) {
     RL.BeginDrawing()
-    RL.ClearBackground(0xFF000000)
+    RL.ClearBackground(0xFF00FF00)
     RL.EndDrawing()
 }
 RL.CloseWindow()
