@@ -1,3 +1,5 @@
+raylib-*/
 build
 .qtcreator
 *.so
+*.tar.gz

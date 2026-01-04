@@ -919,7 +919,7 @@ int main()
 
     result = wrenInterpret(vm, NULL, "class FFI {}\n");
 
-    result = wrenInterpret(vm, "start", "import \"main\"");
+    result = wrenInterpret(vm, NULL, "import \"main\"");
     
     if (result == WREN_RESULT_COMPILE_ERROR) {
         fprintf(stderr, "Compile error!\n");

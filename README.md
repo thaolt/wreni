@@ -1,0 +1,60 @@
+# wreni
+
+This is a very quick and very dirty implementation of libFFI binding for (WrenVM)[https://wren.io/]. It is not even close to alpha-stage quality code. Just a fun experiment. Do not use it for anything. Only run on Linux x86_64, maybe MinGW support in the future.
+
+## For the impatients, as I am
+
+You will need a C compiler and wget (for downloading raylib)
+
+```sh
+git clone --recursive https://github.com/thaolt/wreni.git
+cd wreni
+make run
+```
+
+## How it can be used
+
+First, a Wren class must be `foreign` and extended for `FFI` (just a dummy empty class for marking lazy loading foreign methods at runtime).
+
+```wren
+foreign class Raylib is FFI {
+    #!extern(dll="raylib", args="i32,i32,char*")
+    foreign static InitWindow(width, height, title)
+
+    #!extern(dll="raylib")
+    foreign static BeginDrawing()
+
+    #!extern(dll="raylib")
+    foreign static EndDrawing()
+
+    #!extern(dll="raylib", ret="bool")
+    foreign static WindowShouldClose()
+
+    #!extern(dll="raylib")
+    foreign static CloseWindow()
+
+    #!extern(dll="raylib", args="i64")
+    foreign static ClearBackground(color)
+}
+```
+
+There is no need to write any more binding code. Using the class in a Wren script is as simple as:
+
+```wren
+import "raylib" for Raylib as RL
+
+RL.InitWindow(800, 600, "Wreni")
+RL.SetTargetFPS(60)
+while (!RL.WindowShouldClose()) {
+    RL.BeginDrawing()
+    RL.ClearBackground(0xFF000000)
+    RL.EndDrawing()
+}
+RL.CloseWindow()
+```
+
+## Screenshots
+
+It just a bouncing box :D
+
+![wreni screenshot](screenshot.gif)
