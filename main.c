@@ -11,9 +11,8 @@
 
 #include <wren_vm.h>
 
-// Forward declarations
-void dumpFrameStack(WrenVM* vm);
-void executeForeignFnWithMethodIndex(WrenVM* vm, int methodIndex);
+// Include debug functions
+#include "wren/src/vm/wren_debug.h"
 
 // Structure to store FFI class information
 typedef struct {
@@ -28,7 +27,6 @@ typedef struct {
     char* signature;
     ObjClass* classObj;
     uint16_t symbol;
-    WrenForeignMethodFn uniqueFn; // Unique function pointer for this method
 } FFIMethodInfo;
 
 // Global list to store FFI classes
@@ -40,6 +38,10 @@ static int ffiClassCount = 0;
 #define MAX_FFI_METHODS 100
 static FFIMethodInfo ffiMethods[MAX_FFI_METHODS];
 static int ffiMethodCount = 0;
+
+// Forward declarations for functions that need these structs
+FFIClassInfo* findFFIClassByObject(ObjClass* classObj);
+static const char* getMethodNameFromSymbol(WrenVM* vm, ObjClass* classObj, int symbol);
 
 // Function to add a class to the FFI class list
 void addFFIClass(const char* moduleName, const char* className, ObjClass* classObj) {
@@ -68,21 +70,6 @@ FFIClassInfo* findFFIClass(const char* moduleName, const char* className) {
     return NULL;
 }
 
-// Lightweight jump functions for each FFI method
-void executeForeignFn_0(WrenVM* vm);
-void executeForeignFn_1(WrenVM* vm);
-void executeForeignFn_2(WrenVM* vm);
-void executeForeignFn_3(WrenVM* vm);
-void executeForeignFn_4(WrenVM* vm);
-void executeForeignFn_5(WrenVM* vm);
-void executeForeignFn_6(WrenVM* vm);
-void executeForeignFn_7(WrenVM* vm);
-void executeForeignFn_8(WrenVM* vm);
-void executeForeignFn_9(WrenVM* vm);
-
-// Array of function pointers for lightweight jumps
-static WrenForeignMethodFn methodJumpFunctions[10];
-
 // Function to add a method to the FFI method list
 void addFFIMethod(const char* methodName, const char* signature, ObjClass* classObj, uint16_t symbol) {
     if (ffiMethodCount >= MAX_FFI_METHODS) {
@@ -96,14 +83,6 @@ void addFFIMethod(const char* methodName, const char* signature, ObjClass* class
     ffiMethods[ffiMethodCount].classObj = classObj;
     ffiMethods[ffiMethodCount].symbol = symbol;
     
-    // Assign a unique function pointer
-    if (ffiMethodCount < sizeof(methodJumpFunctions) / sizeof(methodJumpFunctions[0])) {
-        ffiMethods[ffiMethodCount].uniqueFn = methodJumpFunctions[ffiMethodCount];
-    } else {
-        ffiMethods[ffiMethodCount].uniqueFn = executeForeignFn_0; // Fallback to first function
-    }
-    
-    fprintf(stderr, "Stored FFI method: %s (symbol: %d, index: %d)\n", methodName, symbol, ffiMethodCount);
     ffiMethodCount++;
 }
 
@@ -128,57 +107,130 @@ FFIClassInfo* findFFIClassByObject(ObjClass* classObj) {
 }
 
 // Function to execute foreign method with specific index
-void executeForeignFnWithMethodIndex(WrenVM* vm, int methodIndex) {
-    fprintf(stderr, "Executing foreign with method index %d\n", methodIndex);
-    
-    const char* methodName = "<unknown method>";
+void executeForeignFn(WrenVM* vm)
+{
     const char* moduleName = "<unknown module>";
     const char* className = "<unknown class>";
+    const char* methodName = "<unknown method>";
     ObjClass* targetClass = NULL;
 
-    if (methodIndex >= 0 && methodIndex < ffiMethodCount) {
-        FFIMethodInfo* methodInfo = &ffiMethods[methodIndex];
-        methodName = methodInfo->methodName;
-        targetClass = methodInfo->classObj;
-        
-        if (targetClass != NULL && targetClass->name != NULL) {
-            className = targetClass->name->value;
-        }
-        
-        FFIClassInfo* ffiInfo = findFFIClassByObject(targetClass);
-        if (ffiInfo != NULL && ffiInfo->moduleName != NULL) {
-            moduleName = ffiInfo->moduleName;
+    if (vm != NULL) {
+        // Determine the receiver and module/class information from API stack
+        if (vm->apiStack != NULL) {
+            Value receiver = vm->apiStack[0];
+
+            if (IS_CLASS(receiver)) {
+                targetClass = AS_CLASS(receiver);
+            } else if (IS_INSTANCE(receiver)) {
+                targetClass = AS_INSTANCE(receiver)->obj.classObj;
+            }
+
+            if (targetClass != NULL) {
+                if (targetClass->name != NULL) {
+                    className = targetClass->name->value;
+                }
+
+                FFIClassInfo* ffiInfo = findFFIClassByObject(targetClass);
+                if (ffiInfo != NULL && ffiInfo->moduleName != NULL) {
+                    moduleName = ffiInfo->moduleName;
+                }
+            }
         }
     }
 
+    // getting current frame
+    CallFrame* frame = &vm->fiber->frames[vm->fiber->numFrames-1];
+    ObjFn* fn = frame->closure->fn;
+
+    uint16_t methodSymbol = (uint16_t) (*(frame->ip - 2) << 8 | *(frame->ip - 1));
+    
+    // Get the actual method name from the VM using the symbol
+    if (targetClass != NULL) {
+        methodName = vm->methodNames.data[methodSymbol]->value;
+    }
+
     fprintf(stderr, "Executing foreign method %s.%s.%s\n", moduleName, className, methodName);
-    dumpFrameStack(vm);
-}
 
-// Lightweight jump function implementations
-void executeForeignFn_0(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 0); }
-void executeForeignFn_1(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 1); }
-void executeForeignFn_2(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 2); }
-void executeForeignFn_3(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 3); }
-void executeForeignFn_4(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 4); }
-void executeForeignFn_5(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 5); }
-void executeForeignFn_6(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 6); }
-void executeForeignFn_7(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 7); }
-void executeForeignFn_8(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 8); }
-void executeForeignFn_9(WrenVM* vm) { executeForeignFnWithMethodIndex(vm, 9); }
-
-// Initialize the jump function array
-void initializeMethodJumpFunctions() {
-    methodJumpFunctions[0] = executeForeignFn_0;
-    methodJumpFunctions[1] = executeForeignFn_1;
-    methodJumpFunctions[2] = executeForeignFn_2;
-    methodJumpFunctions[3] = executeForeignFn_3;
-    methodJumpFunctions[4] = executeForeignFn_4;
-    methodJumpFunctions[5] = executeForeignFn_5;
-    methodJumpFunctions[6] = executeForeignFn_6;
-    methodJumpFunctions[7] = executeForeignFn_7;
-    methodJumpFunctions[8] = executeForeignFn_8;
-    methodJumpFunctions[9] = executeForeignFn_9;
+    // Extract method attributes after getting method name
+    if (targetClass != NULL && targetClass->attributes != 0) {
+        ObjInstance* attrInstance = AS_INSTANCE(targetClass->attributes);
+        
+        // fields[0] is the class's attributes, fields[1] is all the methods' attributes
+        if (attrInstance->fields[1] != 0 && IS_MAP(attrInstance->fields[1])) {
+            ObjMap* methodsMap = AS_MAP(attrInstance->fields[1]);
+            
+            // The method names in the attributes map include the full signature
+            // We need to find the matching key by extracting the method signature from the end
+            Value methodKey;
+            bool found = false;
+            for (int i = 0; i < methodsMap->capacity; i++) {
+                MapEntry* entry = &methodsMap->entries[i];
+                if (!IS_UNDEFINED(entry->key)) {
+                    if (IS_STRING(entry->key)) {
+                        ObjString* key = AS_STRING(entry->key);
+                        
+                        // Extract method signature from the end of the stored key
+                        // Find the last space to get the method name with parameters
+                        const char* keyStr = key->value;
+                        const char* lastSpace = strrchr(keyStr, ' ');
+                        
+                        if (lastSpace != NULL) {
+                            // Move past the space to get the method signature
+                            const char* methodSignature = lastSpace + 1;
+                            
+                            // Compare with our method name
+                            if (strcmp(methodSignature, methodName) == 0) {
+                                methodKey = entry->key;
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (found) {
+                // Look up the method attributes in the methods map
+                Value methodAttrsValue = wrenMapGet(methodsMap, methodKey);
+                if (!IS_UNDEFINED(methodAttrsValue) && IS_MAP(methodAttrsValue)) {
+                    ObjMap* methodAttrs = AS_MAP(methodAttrsValue);
+                    
+                    // Create string key for 'extern' attribute lookup using CONST_STRING macro
+                    Value externKey = CONST_STRING(vm, "extern");
+                    
+                    // Look for 'extern' attribute directly
+                    Value externValue = wrenMapGet(methodAttrs, externKey);
+                    if (!IS_UNDEFINED(externValue) && IS_MAP(externValue)) {
+                        ObjMap* externMap = AS_MAP(externValue);
+                        
+                        // Create string keys for dll and args lookup
+                        Value dllKey = CONST_STRING(vm, "dll");
+                        Value argsKey = CONST_STRING(vm, "args");
+                        
+                        // Extract dll attribute
+                        Value dllValue = wrenMapGet(externMap, dllKey);
+                        if (!IS_UNDEFINED(dllValue) && IS_LIST(dllValue)) {
+                            ObjList* list = AS_LIST(dllValue);
+                            if (list->elements.count > 0 && IS_STRING(list->elements.data[0])) {
+                                ObjString* value = AS_STRING(list->elements.data[0]);
+                                fprintf(stderr, "FFI Attribute dll: %s\n", value->value);
+                            }
+                        }
+                        
+                        // Extract args attribute
+                        Value argsValue = wrenMapGet(externMap, argsKey);
+                        if (!IS_UNDEFINED(argsValue) && IS_LIST(argsValue)) {
+                            ObjList* list = AS_LIST(argsValue);
+                            if (list->elements.count > 0 && IS_STRING(list->elements.data[0])) {
+                                ObjString* value = AS_STRING(list->elements.data[0]);
+                                fprintf(stderr, "FFI Attribute args: %s\n", value->value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Helper to get method name from a class method table by symbol index
@@ -186,6 +238,7 @@ static const char* getMethodNameFromSymbol(WrenVM* vm, ObjClass* classObj, int s
     if (classObj == NULL || symbol < 0 || symbol >= classObj->methods.count) {
         return "<unknown method>";
     }
+    fprintf(stderr, "Symbol count: %d\n", vm->methodNames.count);
     
     Method* method = &classObj->methods.data[symbol];
     if (method->type != METHOD_FOREIGN) {
@@ -328,7 +381,7 @@ WrenForeignClassMethods bindForeignClassFn(WrenVM* vm, const char* module,
     WrenForeignClassMethods result = {0};
     result.allocate = NULL;
     result.finalize = NULL;
-    fprintf(stderr, "Binding foreign class %s\n", className);
+    // fprintf(stderr, "Binding foreign class %s\n", className);
 
     // Access the class object from the stack and check its superclass
     bool extendsFFI = false;
@@ -338,12 +391,12 @@ WrenForeignClassMethods bindForeignClassFn(WrenVM* vm, const char* module,
         if (IS_CLASS(classValue)) {
             classObj = AS_CLASS(classValue);
             if (classObj->superclass != NULL && classObj->superclass->name != NULL) {
-                printf("bindForeignClassFn: current super class = %s\n", classObj->superclass->name->value);
+                // printf("bindForeignClassFn: current super class = %s\n", classObj->superclass->name->value);
                 if (strcmp(classObj->superclass->name->value, "FFI") == 0) {
                     extendsFFI = true;
                 }
             } else {
-                printf("bindForeignClassFn: no super class\n");
+                // printf("bindForeignClassFn: no super class\n");
             }
         }
     }
@@ -351,7 +404,7 @@ WrenForeignClassMethods bindForeignClassFn(WrenVM* vm, const char* module,
     // Only provide allocate function if class extends from FFI
     if (extendsFFI && classObj != NULL) {
         result.allocate = &allocateForeignClass;
-        fprintf(stderr, "Class %s extends FFI - providing allocate function\n", className);
+        // fprintf(stderr, "Class %s extends FFI - providing allocate function\n", className);
         
         // Store the FFI class information for later use
         addFFIClass(module, className, classObj);
@@ -359,10 +412,10 @@ WrenForeignClassMethods bindForeignClassFn(WrenVM* vm, const char* module,
         // Print all stored FFI classes for debugging
         printFFIClasses();
     } else {
-        fprintf(stderr, "Class %s does not extend FFI - no allocate function\n", className);
+        // fprintf(stderr, "Class %s does not extend FFI - no allocate function\n", className);
     }
 
-    dumpFrameStack(vm);
+    // wrenDumpStack(vm->fiber);
 
     return result;
 }
@@ -373,142 +426,6 @@ void loadLibraryFn(WrenVM* vm)
 }
 
 
-void logVarType(Value value) {
-    if (IS_BOOL(value)) { fprintf(stderr, "Type = %s\n", "BOOL"); } else
-    if (IS_CLASS(value)) { fprintf(stderr, "Type = %s\n", "CLASS"); } else
-    if (IS_FIBER(value)) { fprintf(stderr, "Type = %s\n", "FIBER"); } else
-    if (IS_FN(value)) { fprintf(stderr, "Type = %s\n", "FN"); } else
-    if (IS_FOREIGN(value)) { fprintf(stderr, "Type = %s\n", "FOREIGN"); } else
-    if (IS_MAP(value)) { fprintf(stderr, "Type = %s\n", "MAP"); } else
-    if (IS_CLOSURE(value)) { fprintf(stderr, "Type = %s\n", "CLOSURE"); } else
-    if (IS_INSTANCE(value)) { fprintf(stderr, "Type = %s\n", "INSTANCE"); } else
-    if (IS_LIST(value)) { fprintf(stderr, "Type = %s\n", "LIST"); } else
-    if (IS_RANGE(value)) { fprintf(stderr, "Type = %s\n", "RANGE"); } else
-    if (IS_STRING(value)) { fprintf(stderr, "Type = %s\n", "STRING"); } else
-    if (IS_OBJ(value)) { fprintf(stderr, "Type = %s\n", "OBJ"); } else
-    if (IS_NUM(value)) { fprintf(stderr, "Type = %s\n", "NUM"); } else
-    if (IS_NULL(value)) { fprintf(stderr, "Type = %s\n", "NULL"); } else
-    if (IS_UNDEFINED(value)) { fprintf(stderr, "Type = %s\n", "UNDEFINED"); } else
-    fprintf(stderr, "Type = %s\n", "UNKNOWN");
-}
-
-void dumpFrameStack(WrenVM* vm) {
-    if (vm->fiber != NULL) {
-        fprintf(stderr, "=== Fiber Stack Dump ===\n");
-        
-        // Dump call frames
-        fprintf(stderr, "Call frames (%d/%d):\n", vm->fiber->numFrames, vm->fiber->frameCapacity);
-        for (int i = 0; i < vm->fiber->numFrames; i++) {
-            CallFrame* frame = &vm->fiber->frames[i];
-            fprintf(stderr, "  Frame %d: closure=%p, stackStart=%p, ip=%p\n", 
-                    i, (void*)frame->closure, (void*)frame->stackStart, (void*)frame->ip);
-            if (frame->closure && frame->closure->fn && frame->closure->fn->debug && frame->closure->fn->debug->name) {
-                fprintf(stderr, "    Function: %s\n", frame->closure->fn->debug->name);
-            }
-        }
-        
-        // Dump stack values
-        int stackSize = (int)(vm->fiber->stackTop - vm->fiber->stack);
-        fprintf(stderr, "Stack values (%d/%d used):\n", stackSize, vm->fiber->stackCapacity);
-        for (int i = 0; i < stackSize; i++) {
-            Value value = vm->fiber->stack[i];
-            fprintf(stderr, "  [%d]: ", i);
-            logVarType(value);
-            
-            // Print actual value for common types
-            if (IS_NUM(value)) {
-                fprintf(stderr, "    Value: %f", AS_NUM(value));
-            } else if (IS_BOOL(value)) {
-                fprintf(stderr, "    Value: %s", AS_BOOL(value) ? "true" : "false");
-            } else if (IS_NULL(value)) {
-                fprintf(stderr, "    Value: null");
-            } else if (IS_STRING(value)) {
-                fprintf(stderr, "    Value: \"%s\"", AS_CSTRING(value));
-            } else if (IS_CLASS(value)) {
-                fprintf(stderr, "    Value: %s", AS_CLASS(value)->name->value);
-            } else if (IS_CLOSURE(value)) {
-                fprintf(stderr, "    Value: %s", AS_CLOSURE(value)->fn->debug->name);
-            }
-            fprintf(stderr, "\n");
-        }
-        
-        fprintf(stderr, "=== End Fiber Stack Dump ===\n");
-    } else {
-        fprintf(stderr, "No active fiber to dump\n");
-    }
-}
-
-void executeForeignFn(WrenVM* vm)
-{
-    fprintf(stderr, "Executing foreign\n");
-
-    const char* moduleName = "<unknown module>";
-    const char* className = "<unknown class>";
-    const char* methodName = "<unknown method>";
-    ObjClass* targetClass = NULL;
-
-    if (vm != NULL) {
-        // Determine the receiver and module/class information from API stack
-        if (vm->apiStack != NULL) {
-            Value receiver = vm->apiStack[0];
-
-            if (IS_CLASS(receiver)) {
-                targetClass = AS_CLASS(receiver);
-            } else if (IS_INSTANCE(receiver)) {
-                targetClass = AS_INSTANCE(receiver)->obj.classObj;
-            }
-
-            if (targetClass != NULL) {
-                if (targetClass->name != NULL) {
-                    className = targetClass->name->value;
-                }
-
-                FFIClassInfo* ffiInfo = findFFIClassByObject(targetClass);
-                if (ffiInfo != NULL && ffiInfo->moduleName != NULL) {
-                    moduleName = ffiInfo->moduleName;
-                }
-            }
-        }
-
-        // Try to find the method by examining the current call frame and using stored method info
-        if (vm->fiber != NULL && vm->fiber->numFrames > 0 && targetClass != NULL) {
-            // Look through all frames to find a CALL instruction
-            for (int frameIndex = vm->fiber->numFrames - 1; frameIndex >= 0; frameIndex--) {
-                CallFrame* frame = &vm->fiber->frames[frameIndex];
-                if (frame != NULL && frame->closure != NULL && frame->closure->fn != NULL && frame->ip != NULL) {
-                    ObjFn* fn = frame->closure->fn;
-                    uint8_t* ip = frame->ip;
-                    uint8_t* codeStart = fn->code.data;
-                    
-                    // Look backwards to find a CALL instruction
-                    for (int offset = 3; offset <= 20 && ip >= codeStart + offset; offset++) {
-                        uint8_t opcode = *(ip - offset);
-                        if (opcode >= CODE_CALL_0 && opcode <= CODE_CALL_16) {
-                            uint16_t symbol = (uint16_t)(((ip - offset + 1)[0] << 8) | (ip - offset + 2)[0]);
-                            
-                            // Try to find the method in our stored FFI methods
-                            FFIMethodInfo* methodInfo = findFFIMethod(targetClass, symbol);
-                            if (methodInfo != NULL) {
-                                methodName = methodInfo->methodName;
-                                goto found_method;
-                            }
-                            
-                            // Fallback to the original method
-                            methodName = getMethodNameFromSymbol(vm, targetClass, symbol);
-                            goto found_method;
-                        }
-                    }
-                }
-            }
-        }
-        found_method:;
-    }
-
-    fprintf(stderr, "Executing foreign method %s.%s.%s\n", moduleName, className, methodName);
-
-    dumpFrameStack(vm);
-}
-
 WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
     const char* className, bool isStatic, const char* signature)
 {
@@ -516,20 +433,20 @@ WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
         return NULL;
     }
 
-    fprintf(stderr, "Binding foreign method %s.%s.%s\n", module, className, signature);
+    // fprintf(stderr, "Binding foreign method %s.%s.%s\n", module, className, signature);
     
     // Check if this class is in our stored FFI classes list
     FFIClassInfo* ffiClass = findFFIClass(module, className);
     if (ffiClass == NULL) {
-        fprintf(stderr, "Class %s.%s not found in FFI classes list - returning NULL\n", module, className);
+        // fprintf(stderr, "Class %s.%s not found in FFI classes list - returning NULL\n", module, className);
         return NULL;
     }
     
-    fprintf(stderr, "Found FFI class %s.%s in storage - providing foreign method\n", module, className);
-    fprintf(stderr, "Binding foreign method %p\n", executeForeignFn);
+    // fprintf(stderr, "Found FFI class %s.%s in storage - providing foreign method\n", module, className);
+    // fprintf(stderr, "Binding foreign method %p\n", executeForeignFn);
     
     ObjClass* cls = AS_CLASS(vm->fiber->stackTop[-1]);
-    fprintf(stderr, "Class: %s\n", cls->name->value);
+    // fprintf(stderr, "Class: %s\n", cls->name->value);
 
     // Extract method name from signature (remove parentheses and parameters)
     char methodName[256];
@@ -542,23 +459,29 @@ WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
         *paren = '\0';
     }
     
-    fprintf(stderr, "Debug: extracted method name '%s' from signature '%s'\n", methodName, signature);
-    
     // Try to find the symbol in the VM's methodNames table
     uint16_t symbol = 0;
     bool foundSymbol = false;
     
-    fprintf(stderr, "Debug: VM has %d method names\n", vm->methodNames.count);
+    // fprintf(stderr, "Binding foreign method %s.%s.%s\n", module, className, signature);
     
     // Look through the VM's methodNames to find the matching name
     for (int i = 0; i < vm->methodNames.count; i++) {
         ObjString* name = vm->methodNames.data[i];
         if (name != NULL && name->value != NULL) {
-            fprintf(stderr, "Debug: methodNames[%d] = '%s'\n", i, name->value);
-            if (strcmp(name->value, methodName) == 0) {
+            // Strip parentheses from VM method name for comparison
+            char vmMethodName[256];
+            strncpy(vmMethodName, name->value, sizeof(vmMethodName) - 1);
+            vmMethodName[sizeof(vmMethodName) - 1] = '\0';
+            
+            char* paren = strchr(vmMethodName, '(');
+            if (paren != NULL) {
+                *paren = '\0';
+            }
+            
+            if (strcmp(vmMethodName, methodName) == 0) {
                 symbol = (uint16_t)i;
                 foundSymbol = true;
-                fprintf(stderr, "Found symbol %d for method name %s\n", symbol, methodName);
                 break;
             }
         }
@@ -567,19 +490,16 @@ WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
     if (foundSymbol) {
         addFFIMethod(methodName, signature, cls, symbol);
     } else {
-        fprintf(stderr, "Warning: Could not find symbol for method %s, storing without symbol\n", methodName);
+        // fprintf(stderr, "Warning: Could not find symbol for method %s, storing without symbol\n", methodName);
         addFFIMethod(methodName, signature, cls, 0); // Store with symbol 0 as placeholder
     }
 
-    // Return the unique function pointer for this method
-    return ffiMethods[ffiMethodCount - 1].uniqueFn;
+    // Return the standard foreign function (we'll use VM symbol table to find the method)
+    return executeForeignFn;
 }
 
 int main()
 {
-    // Initialize method jump functions
-    initializeMethodJumpFunctions();
-    
     WrenConfiguration config;
     wrenInitConfiguration(&config);
     config.writeFn = &writeFn;

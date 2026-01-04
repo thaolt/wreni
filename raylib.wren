@@ -1,5 +1,4 @@
 foreign class Raylib is FFI {
-
     #!extern(dll="raylib", args="int,int,char*")
     foreign static InitWindow(width, height, title)
 
