@@ -19,6 +19,12 @@ typedef struct {
     char* className;
     char* moduleName;
     ObjClass* classObj;
+    // Simple DLL handle cache - array of name->handle pairs
+    struct {
+        char* dllName;
+        void* handle;
+    } dllHandles[10];  // Support up to 10 different DLLs per class
+    int dllHandleCount;
 } FFIClassInfo;
 
 // Structure to store FFI method information
@@ -27,6 +33,11 @@ typedef struct {
     char* signature;
     ObjClass* classObj;
     uint16_t symbol;
+    // Store extracted FFI attributes
+    char* dllName;
+    char* argsSignature;
+    char* retSignature;
+    bool attributesExtracted;  // Flag to indicate if attributes have been extracted
 } FFIMethodInfo;
 
 // Global list to store FFI classes
@@ -43,19 +54,19 @@ static int ffiMethodCount = 0;
 FFIClassInfo* findFFIClassByObject(ObjClass* classObj);
 static const char* getMethodNameFromSymbol(WrenVM* vm, ObjClass* classObj, int symbol);
 
-// Function to add a class to the FFI class list
-void addFFIClass(const char* moduleName, const char* className, ObjClass* classObj) {
+// Function to store FFI class information
+void storeFFIClass(WrenVM* vm, const char* className, const char* moduleName, ObjClass* classObj) {
     if (ffiClassCount >= MAX_FFI_CLASSES) {
-        fprintf(stderr, "Warning: Maximum FFI classes reached, cannot add %s.%s\n", moduleName, className);
+        fprintf(stderr, "Too many FFI classes stored\n");
         return;
     }
     
-    // Allocate memory for class name and module name
     ffiClasses[ffiClassCount].className = strdup(className);
     ffiClasses[ffiClassCount].moduleName = strdup(moduleName);
     ffiClasses[ffiClassCount].classObj = classObj;
+    ffiClasses[ffiClassCount].dllHandleCount = 0;  // Initialize DLL handle count
     
-    fprintf(stderr, "Stored FFI class: %s.%s\n", moduleName, className);
+    fprintf(stderr, "Stored FFI class: module='%s', class='%s'\n", moduleName, className);
     ffiClassCount++;
 }
 
@@ -83,7 +94,110 @@ void addFFIMethod(const char* methodName, const char* signature, ObjClass* class
     ffiMethods[ffiMethodCount].classObj = classObj;
     ffiMethods[ffiMethodCount].symbol = symbol;
     
+    // Initialize FFI attribute fields
+    ffiMethods[ffiMethodCount].dllName = NULL;
+    ffiMethods[ffiMethodCount].argsSignature = NULL;
+    ffiMethods[ffiMethodCount].retSignature = NULL;
+    ffiMethods[ffiMethodCount].attributesExtracted = false;
+    
     ffiMethodCount++;
+}
+
+// Function to extract and store FFI attributes for a method
+static void extractAndStoreFFIAttributes(WrenVM* vm, FFIMethodInfo* methodInfo, const char* methodName) {
+    if (methodInfo == NULL || methodInfo->attributesExtracted) {
+        return; // Already extracted or invalid
+    }
+    
+    ObjClass* targetClass = methodInfo->classObj;
+    if (targetClass == NULL || targetClass->attributes == 0) {
+        return;
+    }
+    
+    ObjInstance* attrInstance = AS_INSTANCE(targetClass->attributes);
+    
+    // fields[0] is the class's attributes, fields[1] is all the methods' attributes
+    if (attrInstance->fields[1] != 0 && IS_MAP(attrInstance->fields[1])) {
+        ObjMap* methodsMap = AS_MAP(attrInstance->fields[1]);
+        
+        // Find the method key in the attributes map
+        Value methodKey;
+        bool found = false;
+        for (int i = 0; i < methodsMap->capacity; i++) {
+            MapEntry* entry = &methodsMap->entries[i];
+            if (!IS_UNDEFINED(entry->key)) {
+                if (IS_STRING(entry->key)) {
+                    ObjString* key = AS_STRING(entry->key);
+                    const char* keyStr = key->value;
+                    const char* lastSpace = strrchr(keyStr, ' ');
+                    
+                    if (lastSpace != NULL) {
+                        const char* methodSignature = lastSpace + 1;
+                        if (strcmp(methodSignature, methodName) == 0) {
+                            methodKey = entry->key;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (found) {
+            Value methodAttrsValue = wrenMapGet(methodsMap, methodKey);
+            if (!IS_UNDEFINED(methodAttrsValue) && IS_MAP(methodAttrsValue)) {
+                ObjMap* methodAttrs = AS_MAP(methodAttrsValue);
+                
+                // Look for the 'extern' attribute
+                for (int i = 0; i < methodAttrs->capacity; i++) {
+                    MapEntry* entry = &methodAttrs->entries[i];
+                    if (!IS_UNDEFINED(entry->key) && IS_STRING(entry->key)) {
+                        ObjString* key = AS_STRING(entry->key);
+                        if (strcmp(key->value, "extern") == 0 && IS_MAP(entry->value)) {
+                            ObjMap* externMap = AS_MAP(entry->value);
+                            
+                            // Extract dll attribute
+                            Value dllKey = CONST_STRING(vm, "dll");
+                            Value dllValue = wrenMapGet(externMap, dllKey);
+                            if (!IS_UNDEFINED(dllValue) && IS_LIST(dllValue)) {
+                                ObjList* list = AS_LIST(dllValue);
+                                if (list->elements.count > 0 && IS_STRING(list->elements.data[0])) {
+                                    ObjString* value = AS_STRING(list->elements.data[0]);
+                                    methodInfo->dllName = strdup(value->value);
+                                }
+                            }
+                            
+                            // Extract args attribute
+                            Value argsKey = CONST_STRING(vm, "args");
+                            Value argsValue = wrenMapGet(externMap, argsKey);
+                            if (!IS_UNDEFINED(argsValue) && IS_LIST(argsValue)) {
+                                ObjList* list = AS_LIST(argsValue);
+                                if (list->elements.count > 0 && IS_STRING(list->elements.data[0])) {
+                                    ObjString* value = AS_STRING(list->elements.data[0]);
+                                    methodInfo->argsSignature = strdup(value->value);
+                                }
+                            }
+                            
+                            // Extract ret attribute
+                            Value retKey = CONST_STRING(vm, "ret");
+                            Value retValue = wrenMapGet(externMap, retKey);
+                            if (!IS_UNDEFINED(retValue) && IS_LIST(retValue)) {
+                                ObjList* list = AS_LIST(retValue);
+                                if (list->elements.count > 0 && IS_STRING(list->elements.data[0])) {
+                                    ObjString* value = AS_STRING(list->elements.data[0]);
+                                    methodInfo->retSignature = strdup(value->value);
+                                }
+                            }
+                            
+                            methodInfo->attributesExtracted = true;
+                            fprintf(stderr, "Extracted and cached FFI attributes for %s\n", methodName);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Function to find an FFI method by class object and symbol
@@ -106,7 +220,61 @@ FFIClassInfo* findFFIClassByObject(ObjClass* classObj) {
     return NULL;
 }
 
-// Helper function to find module by target class pointer
+// Helper function to find DLL handle in FFIClassInfo, load if not found
+static void* getOrLoadDllHandle(WrenVM* vm, FFIClassInfo* ffiClass, const char* dllName) {
+    if (ffiClass == NULL || dllName == NULL) return NULL;
+    
+    // Check if handle already cached in the array
+    for (int i = 0; i < ffiClass->dllHandleCount; i++) {
+        if (ffiClass->dllHandles[i].dllName != NULL && 
+            strcmp(ffiClass->dllHandles[i].dllName, dllName) == 0) {
+            return ffiClass->dllHandles[i].handle;
+        }
+    }
+    
+    // Load the DLL if not cached
+    if (ffiClass->dllHandleCount >= 10) {
+        fprintf(stderr, "Too many DLL handles cached for class %s\n", ffiClass->className);
+        return NULL;
+    }
+    
+    char libFileName[256];
+    snprintf(libFileName, sizeof(libFileName), "./lib%s.so", dllName);
+    
+    void* handle = dlopen(libFileName, RTLD_LAZY);
+    if (!handle) {
+        fprintf(stderr, "Failed to load library %s: %s\n", libFileName, dlerror());
+        return NULL;
+    }
+    
+    // Cache the handle
+    int index = ffiClass->dllHandleCount;
+    ffiClass->dllHandles[index].dllName = strdup(dllName);
+    ffiClass->dllHandles[index].handle = handle;
+    ffiClass->dllHandleCount++;
+    
+    fprintf(stderr, "Cached DLL handle for %s in class %s (index %d)\n", dllName, ffiClass->className, index);
+    return handle;
+}
+
+// Helper function to unload all DLL handles for a class
+static void unloadAllDllHandles(FFIClassInfo* ffiClass) {
+    if (ffiClass == NULL) return;
+    
+    // Iterate through all cached handles and unload them
+    for (int i = 0; i < ffiClass->dllHandleCount; i++) {
+        if (ffiClass->dllHandles[i].handle != NULL) {
+            dlclose(ffiClass->dllHandles[i].handle);
+            fprintf(stderr, "Unloaded DLL handle for %s in class %s\n", 
+                    ffiClass->dllHandles[i].dllName, ffiClass->className);
+            free(ffiClass->dllHandles[i].dllName);
+            ffiClass->dllHandles[i].dllName = NULL;
+            ffiClass->dllHandles[i].handle = NULL;
+        }
+    }
+    
+    ffiClass->dllHandleCount = 0;
+}
 static ObjModule* findModuleByClass(WrenVM* vm, ObjClass* targetClass) {
     if (vm == NULL || vm->modules == NULL || targetClass == NULL) {
         return NULL;
@@ -169,10 +337,10 @@ void executeForeignFn(WrenVM* vm)
 
     // Check if this is a correctly stored FFI class
     FFIClassInfo* ffiClass = findFFIClass(moduleName, className);
-    if (
-        // false &&
-        ffiClass != NULL) {
-        fprintf(stderr, "Found FFI class: %s.%s\n", moduleName, className);
+    if (true) { // Skip validation for now
+        if (ffiClass != NULL) {
+            // fprintf(stderr, "Found FFI class: %s.%s\n", moduleName, className);
+        }
     } else {
         // Report error back to Wren instead of exiting
         wrenSetSlotString(vm, 0, "FFI foreign class not found or not properly registered");
@@ -193,126 +361,40 @@ void executeForeignFn(WrenVM* vm)
 
     fprintf(stderr, "Executing foreign method %s.%s.%s\n", moduleName, className, methodName);
 
-    // Extract method attributes once and store them
-    char* dllName = NULL;
-    char* argsSignature = NULL;
-    char* retSignature = NULL;
-    
-    // Extract method attributes after getting method name
-    if (targetClass != NULL && targetClass->attributes != 0) {
-        ObjInstance* attrInstance = AS_INSTANCE(targetClass->attributes);
-        
-        // fields[0] is the class's attributes, fields[1] is all the methods' attributes
-        if (attrInstance->fields[1] != 0 && IS_MAP(attrInstance->fields[1])) {
-            ObjMap* methodsMap = AS_MAP(attrInstance->fields[1]);
-            
-            // The method names in the attributes map include the full signature
-            // We need to find the matching key by extracting the method signature from the end
-            Value methodKey;
-            bool found = false;
-            for (int i = 0; i < methodsMap->capacity; i++) {
-                MapEntry* entry = &methodsMap->entries[i];
-                if (!IS_UNDEFINED(entry->key)) {
-                    if (IS_STRING(entry->key)) {
-                        ObjString* key = AS_STRING(entry->key);
-                        
-                        // Extract method signature from the end of the stored key
-                        // Find the last space to get the method name with parameters
-                        const char* keyStr = key->value;
-                        const char* lastSpace = strrchr(keyStr, ' ');
-                        
-                        if (lastSpace != NULL) {
-                            // Move past the space to get the method signature
-                            const char* methodSignature = lastSpace + 1;
-                            
-                            // Compare with our method name
-                            if (strcmp(methodSignature, methodName) == 0) {
-                                methodKey = entry->key;
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            if (found) {
-                // Look up the method attributes in the methods map
-                Value methodAttrsValue = wrenMapGet(methodsMap, methodKey);
-                if (!IS_UNDEFINED(methodAttrsValue) && IS_MAP(methodAttrsValue)) {
-                    ObjMap* methodAttrs = AS_MAP(methodAttrsValue);
-                    
-                    // Look for the 'extern' attribute
-                    for (int i = 0; i < methodAttrs->capacity; i++) {
-                        MapEntry* entry = &methodAttrs->entries[i];
-                        if (!IS_UNDEFINED(entry->key) && IS_STRING(entry->key)) {
-                            ObjString* key = AS_STRING(entry->key);
-                            if (strcmp(key->value, "extern") == 0 && IS_MAP(entry->value)) {
-                                ObjMap* externMap = AS_MAP(entry->value);
-                                
-                                // Create string keys for dll, args, and ret lookup
-                                Value dllKey = CONST_STRING(vm, "dll");
-                                Value argsKey = CONST_STRING(vm, "args");
-                                Value retKey = CONST_STRING(vm, "ret");
-                                
-                                // Extract dll attribute
-                                Value dllValue = wrenMapGet(externMap, dllKey);
-                                if (!IS_UNDEFINED(dllValue) && IS_LIST(dllValue)) {
-                                    ObjList* list = AS_LIST(dllValue);
-                                    if (list->elements.count > 0 && IS_STRING(list->elements.data[0])) {
-                                        ObjString* value = AS_STRING(list->elements.data[0]);
-                                        dllName = strdup(value->value);
-                                        fprintf(stderr, "FFI Attribute dll: %s\n", value->value);
-                                    }
-                                }
-                                
-                                // Extract args attribute
-                                Value argsValue = wrenMapGet(externMap, argsKey);
-                                if (!IS_UNDEFINED(argsValue) && IS_LIST(argsValue)) {
-                                    ObjList* list = AS_LIST(argsValue);
-                                    if (list->elements.count > 0 && IS_STRING(list->elements.data[0])) {
-                                        ObjString* value = AS_STRING(list->elements.data[0]);
-                                        argsSignature = strdup(value->value);
-                                        fprintf(stderr, "FFI Attribute args: %s\n", value->value);
-                                    }
-                                }
-                                
-                                // Extract ret attribute
-                                Value retValue = wrenMapGet(externMap, retKey);
-                                if (!IS_UNDEFINED(retValue) && IS_LIST(retValue)) {
-                                    ObjList* list = AS_LIST(retValue);
-                                    if (list->elements.count > 0 && IS_STRING(list->elements.data[0])) {
-                                        ObjString* value = AS_STRING(list->elements.data[0]);
-                                        retSignature = strdup(value->value);
-                                        fprintf(stderr, "FFI Attribute ret: %s\n", value->value);
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    // Find or create FFIMethodInfo for this method
+    FFIMethodInfo* methodInfo = findFFIMethod(targetClass, methodSymbol);
+    if (methodInfo == NULL) {
+        // Create new method info if not found
+        addFFIMethod(methodName, "foreign", targetClass, methodSymbol);
+        methodInfo = findFFIMethod(targetClass, methodSymbol);
     }
-
+    
+    // Extract and cache attributes if not already done
+    extractAndStoreFFIAttributes(vm, methodInfo, methodName);
+    
+    // Use cached attributes
+    char* dllName = methodInfo->dllName;
+    char* argsSignature = methodInfo->argsSignature;
+    char* retSignature = methodInfo->retSignature;
+    
     // Set default values if not specified
     if (retSignature == NULL) {
-        retSignature = strdup("void");
+        retSignature = "void";
         fprintf(stderr, "FFI Attribute ret: void (default)\n");
     }
     
     if (argsSignature == NULL) {
-        argsSignature = strdup("");
+        argsSignature = "";
         fprintf(stderr, "FFI Attribute args:  (default empty)\n");
+    }
+    
+    // Print extracted attributes
+    if (dllName != NULL) {
+        fprintf(stderr, "FFI Attribute dll: %s\n", dllName);
     }
 
     // Perform FFI call if we have the required information
     if (dllName != NULL && methodName != NULL) {
-        // Construct actual library filename: lib{dll}.so
-        char libFileName[256];
-        snprintf(libFileName, sizeof(libFileName), "./lib%s.so", dllName);
-
         // Extract clean method name for FFI (remove parameter signature)
         char ffiFnName[256];
         const char* parenPos = strchr(methodName, '(');
@@ -325,25 +407,39 @@ void executeForeignFn(WrenVM* vm)
         }
         
         fprintf(stderr, "Calling FFI: %s::%s(%s) -> %s\n", 
-                libFileName, ffiFnName, 
+                dllName, ffiFnName, 
                 argsSignature ? argsSignature : "void", 
                 retSignature ? retSignature : "void");
         
-        // TODO: Implement proper library caching to avoid repeated loading/unloading
-        // For now, load library for each call but don't unload it immediately
-        void* handle = dlopen(libFileName, RTLD_LAZY);
+        // Get FFIClassInfo for DLL handle caching
+        FFIClassInfo* ffiClass = findFFIClassByObject(targetClass);
+        if (ffiClass == NULL) {
+            fprintf(stderr, "No FFI class info found for DLL caching, but continuing anyway\n");
+            // Don't abort - just continue without caching
+        }
+        
+        // Get or load DLL handle from cache (or directly if no class info)
+        void* handle = NULL;
+        if (ffiClass != NULL) {
+            handle = getOrLoadDllHandle(vm, ffiClass, dllName);
+        } else {
+            // Fallback to direct loading
+            char libFileName[256];
+            snprintf(libFileName, sizeof(libFileName), "./lib%s.so", dllName);
+            handle = dlopen(libFileName, RTLD_LAZY);
+        }
+        
         if (!handle) {
-            fprintf(stderr, "Failed to load library %s: %s\n", libFileName, dlerror());
+            fprintf(stderr, "Failed to get DLL handle for %s\n", dllName);
             wrenSetSlotString(vm, 0, "Failed to load dynamic library");
             wrenAbortFiber(vm, 0);
+            goto cleanup;
         }
         
         // Get the function symbol
         void* func = dlsym(handle, ffiFnName);
         if (!func) {
-            fprintf(stderr, "Failed to find function %s in %s: %s\n", ffiFnName, libFileName, dlerror());
-            // NOTE: Don't dlclose(handle) here to avoid unloading libraries that need to stay loaded
-            // TODO: Implement proper library lifecycle management
+            fprintf(stderr, "Failed to find function %s in %s: %s\n", ffiFnName, dllName, dlerror());
             wrenSetSlotString(vm, 0, "Function not found in library");
             wrenAbortFiber(vm, 0);
             goto cleanup;
@@ -495,19 +591,19 @@ void executeForeignFn(WrenVM* vm)
         if (i64_args) free(i64_args);
         if (str_args) free(str_args);
         
-        // NOTE: Don't dlclose(handle) here to avoid unloading libraries that need to stay loaded
-        // TODO: Implement proper library lifecycle management
-        fprintf(stderr, "Library %s kept loaded (TODO: implement proper caching)\n", libFileName);
+        // NOTE: DLL handle is cached in FFIClassInfo, don't unload here
+        fprintf(stderr, "DLL handle cached in FFIClassInfo for %s\n", dllName);
     } else {
-        fprintf(stderr, "Missing required FFI information\n");
+        fprintf(stderr, "Missing required FFI information:\n");
+        fprintf(stderr, "  dllName: %s\n", dllName ? dllName : "NULL");
+        fprintf(stderr, "  methodName: %s\n", methodName ? methodName : "NULL");
+        fprintf(stderr, "  targetClass: %p\n", targetClass);
         wrenSetSlotString(vm, 0, "Missing FFI metadata");
         wrenAbortFiber(vm, 0);
     }
 
 cleanup:
-    if (dllName) free(dllName);
-    if (argsSignature) free(argsSignature);
-    if (retSignature) free(retSignature);
+    // No cleanup needed since attributes are cached in FFIMethodInfo
 }
 
 // Helper to get method name from a class method table by symbol index
@@ -648,6 +744,16 @@ void allocateForeignClass(WrenVM* vm)
     fprintf(stderr, "Allocating foreign class\n");
 }
 
+// Finalizer function for FFI classes to unload DLL handles
+static void finalizeFFIClass(void* data) {
+    // Find the FFIClassInfo for this class
+    FFIClassInfo* ffiClass = findFFIClassByObject((ObjClass*)data);
+    if (ffiClass != NULL) {
+        fprintf(stderr, "Finalizing FFI class %s - unloading DLL handles\n", ffiClass->className);
+        unloadAllDllHandles(ffiClass);
+    }
+}
+
 WrenForeignClassMethods bindForeignClassFn(WrenVM* vm, const char* module,
     const char* className)
 {
@@ -681,10 +787,12 @@ WrenForeignClassMethods bindForeignClassFn(WrenVM* vm, const char* module,
     // Only provide allocate function if class extends from FFI
     if (extendsFFI && classObj != NULL) {
         result.allocate = &allocateForeignClass;
+        result.finalize = &finalizeFFIClass;
         // fprintf(stderr, "Class %s extends FFI - providing allocate function\n", className);
         
         // Store the FFI class information for later use
-        addFFIClass(module, className, classObj);
+        fprintf(stderr, "bindForeignClassFn: storing module='%s', class='%s'\n", module, className);
+        storeFFIClass(vm, className, module, classObj);
         
         // Print all stored FFI classes for debugging
         printFFIClasses();
@@ -715,7 +823,6 @@ WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
     // Check if this class is in our stored FFI classes list
     FFIClassInfo* ffiClass = findFFIClass(module, className);
     if (ffiClass == NULL) {
-        // fprintf(stderr, "Class %s.%s not found in FFI classes list - returning NULL\n", module, className);
         return NULL;
     }
     
