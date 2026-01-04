@@ -1,8 +1,8 @@
 # wreni
 
-This is a very quick and very dirty implementation of libFFI binding for (WrenVM)[https://wren.io/]. It is not even close to alpha-stage quality code. Just a fun experiment. Do not use it for anything. Only run on Linux x86_64, maybe MinGW support in the future.
+This is a very quick and very dirty implementation of libFFI binding for [WrenVM](https://wren.io/). It is not even close to alpha-stage quality code. Just a fun experiment. Do not use it for anything. Only run on Linux x86_64, maybe MinGW support in the future.
 
-Inspired by (tsoding)[https://github.com/tsoding]'s (video on WrenVM)[https://www.youtube.com/watch?v=G4Ugv18tJ5E]
+Inspired by [tsoding](https://github.com/tsoding)'s [video on WrenVM](https://www.youtube.com/watch?v=G4Ugv18tJ5E)
 
 This run on a modified version of WrenVM, the modification is only 1 line, see https://github.com/wren-lang/wren/commit/0a933f10eaa28295e487f20ba706262b05dc04f7
 
