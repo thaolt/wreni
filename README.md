@@ -58,3 +58,11 @@ RL.CloseWindow()
 It just a bouncing box :D
 
 ![wreni screenshot](screenshot.gif)
+
+## TODO
+
+- Argument Parsing Optimization
+- Attribute Caching Optimization
+- Type System Abstraction
+- Error Handling Centralization
+- Support MinGW for Win32 build
