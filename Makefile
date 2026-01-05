@@ -33,8 +33,8 @@ $(BUILD_DIR)/libwren.a: $(WREN_OBJ_FILES) | $(BUILD_DIR)
 clean:
 	rm -rf $(BUILD_DIR)
 
-run: $(BUILD_DIR)/wreni libraylib.so main.wren
-	./$(BUILD_DIR)/wreni main
+run: $(BUILD_DIR)/wreni libraylib.so game.wren
+	./$(BUILD_DIR)/wreni game
 
 libraylib.so: raylib-5.5_linux_amd64.tar.gz
 	tar xzvf raylib-5.5_linux_amd64.tar.gz
