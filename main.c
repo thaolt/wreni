@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <wren.h>
 
 #include <stdio.h>
@@ -52,7 +54,6 @@ static int ffiMethodCount = 0;
 
 // Forward declarations for functions that need these structs
 FFIClassInfo* findFFIClassByObject(ObjClass* classObj);
-static const char* getMethodNameFromSymbol(WrenVM* vm, ObjClass* classObj, int symbol);
 
 // Function to store FFI class information
 void storeFFIClass(WrenVM* vm, const char* className, const char* moduleName, ObjClass* classObj) {
@@ -350,7 +351,6 @@ void executeForeignFn(WrenVM* vm)
 
     // getting current frame
     CallFrame* frame = &vm->fiber->frames[vm->fiber->numFrames-1];
-    ObjFn* fn = frame->closure->fn;
 
     uint16_t methodSymbol = (uint16_t) (*(frame->ip - 2) << 8 | *(frame->ip - 1));
     
@@ -628,29 +628,6 @@ cleanup:
     // No cleanup needed since attributes are cached in FFIMethodInfo
 }
 
-// Helper to get method name from a class method table by symbol index
-static const char* getMethodNameFromSymbol(WrenVM* vm, ObjClass* classObj, int symbol) {
-    if (classObj == NULL || symbol < 0 || symbol >= classObj->methods.count) {
-        return "<unknown method>";
-    }
-    fprintf(stderr, "Symbol count: %d\n", vm->methodNames.count);
-    
-    Method* method = &classObj->methods.data[symbol];
-    if (method->type != METHOD_FOREIGN) {
-        return "<unknown method>";
-    }
-    
-    // Look up the symbol name in VM's methodNames table
-    if (symbol < vm->methodNames.count) {
-        ObjString* name = vm->methodNames.data[symbol];
-        if (name != NULL && name->value != NULL) {
-            return name->value;
-        }
-    }
-    
-    return "<unknown method>";
-}
-
 // Function to print all stored FFI classes
 void printFFIClasses() {
     fprintf(stderr, "=== Stored FFI Classes (%d) ===\n", ffiClassCount);
@@ -874,7 +851,7 @@ WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
     // Look through the VM's methodNames to find the matching name
     for (int i = 0; i < vm->methodNames.count; i++) {
         ObjString* name = vm->methodNames.data[i];
-        if (name != NULL && name->value != NULL) {
+        if (name != NULL) {
             // Strip parentheses from VM method name for comparison
             char vmMethodName[256];
             strncpy(vmMethodName, name->value, sizeof(vmMethodName) - 1);
