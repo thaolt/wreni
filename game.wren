@@ -14,7 +14,7 @@ var paddleX = screenWidth / 2 - paddleWidth / 2
 var paddleY = screenHeight - 50
 var paddleSpeed = 500
 
-var ballSize = 15
+var ballSize = 7.5  // Radius for the circle (was 15 for rectangle size)
 var ballX = screenWidth / 2
 var ballY = screenHeight / 2 + 200
 var ballSpeedX = 200
@@ -67,22 +67,22 @@ while (!RL.WindowShouldClose()) {
         ballY = ballY + (ballSpeedY * deltaTime)
         
         // Ball collision with left and right walls
-        if (ballX <= 0 || ballX + ballSize >= screenWidth) {
+        if (ballX - ballSize <= 0 || ballX + ballSize >= screenWidth) {
             ballSpeedX = -ballSpeedX
-            ballX = ballX <= 0 ? 0 : screenWidth - ballSize
+            ballX = ballX - ballSize <= 0 ? ballSize : screenWidth - ballSize
         }
         
         // Ball collision with top wall
-        if (ballY <= 0) {
+        if (ballY - ballSize <= 0) {
             ballSpeedY = -ballSpeedY
-            ballY = 0
+            ballY = ballSize
         }
         
-        // Ball collision with paddle
+        // Ball collision with paddle (circle vs rectangle)
         if (ballY + ballSize >= paddleY && 
-            ballY + ballSize <= paddleY + paddleHeight &&
+            ballY - ballSize <= paddleY + paddleHeight &&
             ballX + ballSize >= paddleX && 
-            ballX <= paddleX + paddleWidth) {
+            ballX - ballSize <= paddleX + paddleWidth) {
             
             // Only bounce if ball is moving downward (to prevent multiple bounces)
             if (ballSpeedY > 0) {
@@ -90,7 +90,7 @@ while (!RL.WindowShouldClose()) {
                 ballY = paddleY - ballSize
                 
                 // Simple physics: determine bounce direction based on where ball hits paddle
-                var hitPos = (ballX + ballSize/2 - paddleX) / paddleWidth
+                var hitPos = (ballX - paddleX) / paddleWidth
                 
                 // Left third of paddle -> bounce left
                 // Middle third -> bounce straight up  
@@ -130,7 +130,7 @@ while (!RL.WindowShouldClose()) {
     
     // Draw ball if active
     if (ballActive) {
-        RL.DrawRectangle(ballX, ballY, ballSize, ballSize, ballColor)
+        RL.DrawCircle(ballX, ballY, ballSize, ballColor)
     }
     
     // Draw start screen instructions if game hasn't started
@@ -148,29 +148,7 @@ while (!RL.WindowShouldClose()) {
     
     // Draw score as text (only show when game has started)
     if (gameStarted) {
-        if (score == 0) {
-            RL.DrawText("SCORE: 0", 10, 10, 20, textColor)
-        } else if (score == 10) {
-            RL.DrawText("SCORE: 10", 10, 10, 20, textColor)
-        } else if (score == 20) {
-            RL.DrawText("SCORE: 20", 10, 10, 20, textColor)
-        } else if (score == 30) {
-            RL.DrawText("SCORE: 30", 10, 10, 20, textColor)
-        } else if (score == 40) {
-            RL.DrawText("SCORE: 40", 10, 10, 20, textColor)
-        } else if (score == 50) {
-            RL.DrawText("SCORE: 50", 10, 10, 20, textColor)
-        } else if (score == 60) {
-            RL.DrawText("SCORE: 60", 10, 10, 20, textColor)
-        } else if (score == 70) {
-            RL.DrawText("SCORE: 70", 10, 10, 20, textColor)
-        } else if (score == 80) {
-            RL.DrawText("SCORE: 80", 10, 10, 20, textColor)
-        } else if (score == 90) {
-            RL.DrawText("SCORE: 90", 10, 10, 20, textColor)
-        } else {
-            RL.DrawText("SCORE: 100+", 10, 10, 20, textColor)
-        }
+        RL.DrawText("SCORE: %(score)", 10, 10, 20, textColor)
     }
     
     // Draw game over indicator

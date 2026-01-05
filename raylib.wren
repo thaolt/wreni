@@ -43,4 +43,7 @@ foreign class Raylib is FFI {
 
     #!extern(dll="raylib", args="char*,i32", ret="i32")
     foreign static MeasureText(text, fontSize)
+
+    #!extern(dll="raylib", args="i32,i32,f32,i64")
+    foreign static DrawCircle(centerX, centerY, radius, color)
 }
