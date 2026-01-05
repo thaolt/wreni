@@ -464,7 +464,7 @@ void executeForeignFn(WrenVM* vm)
         } else if (retSignature != NULL && strcmp(retSignature, "f32") == 0) {
             ret_type = &ffi_type_float;
         } else if (retSignature != NULL && strcmp(retSignature, "bool") == 0) {
-            ret_type = &ffi_type_sint32;  // bool as int for simplicity
+            ret_type = &ffi_type_uint8;  // bool as 1 byte unsigned int
         }
         
         // Parse arguments signature
@@ -563,10 +563,16 @@ void executeForeignFn(WrenVM* vm)
         if (ret_type != &ffi_type_void) {
             if (ret_type == &ffi_type_sint64) {
                 result = malloc(sizeof(int64_t));
+                memset(result, 0, sizeof(int64_t));
             } else if (ret_type == &ffi_type_float) {
                 result = malloc(sizeof(float));
+                memset(result, 0, sizeof(float));
+            } else if (ret_type == &ffi_type_uint8) {
+                result = malloc(sizeof(uint8_t));
+                memset(result, 0, sizeof(uint8_t));
             } else {
                 result = malloc(sizeof(int));
+                memset(result, 0, sizeof(int));
             }
         }
         
@@ -592,14 +598,20 @@ void executeForeignFn(WrenVM* vm)
                 if (strcmp(retSignature, "f32") == 0) {
                     wrenSetSlotDouble(vm, 0, (double)ret_val);
                 }
+            } else if (ret_type == &ffi_type_uint8) {
+                uint8_t ret_val = *(uint8_t*)result;
+                fprintf(stderr, "FFI call returned: %u (bool)\n", ret_val);
+                
+                // Set return value in Wren
+                if (strcmp(retSignature, "bool") == 0) {
+                    wrenSetSlotBool(vm, 0, ret_val != 0);
+                }
             } else {
                 int ret_val = *(int*)result;
                 fprintf(stderr, "FFI call returned: %d\n", ret_val);
                 
                 // Set return value in Wren
-                if (strcmp(retSignature, "bool") == 0) {
-                    wrenSetSlotBool(vm, 0, ret_val != 0);
-                } else if (strcmp(retSignature, "i32") == 0) {
+                if (strcmp(retSignature, "i32") == 0) {
                     wrenSetSlotDouble(vm, 0, ret_val);
                 }
             }

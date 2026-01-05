@@ -31,4 +31,16 @@ foreign class Raylib is FFI {
 
     #!extern(dll="raylib", args="i32,i32,i32,i32,i64")
     foreign static DrawRectangle(x, y, width, height, color)
+
+    #!extern(dll="raylib", args="i32", ret="bool")
+    foreign static IsKeyPressed(key)
+
+    #!extern(dll="raylib", args="i32", ret="bool")
+    foreign static IsKeyDown(key)
+
+    #!extern(dll="raylib", args="char*,i32,i32,i32,i64")
+    foreign static DrawText(text, x, y, fontSize, color)
+
+    #!extern(dll="raylib", args="char*,i32", ret="i32")
+    foreign static MeasureText(text, fontSize)
 }
