@@ -904,8 +904,15 @@ WrenForeignMethodFn bindForeignMethodFn(WrenVM* vm, const char* module,
     return executeForeignFn;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <wren_module_name>\n", argv[0]);
+        fprintf(stderr, "Example: %s main\n"
+                        "         for loading and eval 'main.wren'\n", argv[0]);
+        return 0;
+    }
+    
     WrenConfiguration config;
     wrenInitConfiguration(&config);
     config.writeFn = &writeFn;
@@ -919,7 +926,9 @@ int main()
 
     result = wrenInterpret(vm, NULL, "class FFI {}\n");
 
-    result = wrenInterpret(vm, NULL, "import \"main\"");
+    char importStatement[512];
+    snprintf(importStatement, sizeof(importStatement), "import \"%s\"", argv[1]);
+    result = wrenInterpret(vm, NULL, importStatement);
     
     if (result == WREN_RESULT_COMPILE_ERROR) {
         fprintf(stderr, "Compile error!\n");

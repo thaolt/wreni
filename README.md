@@ -8,7 +8,7 @@ This run on a modified version of WrenVM, the modification is only 1 line, see [
 
 ## For the impatients, as I am
 
-You will need a C compiler and wget (for downloading raylib)
+You will need a Linux machine, a C compiler, libffi development package installed and wget (for downloading raylib to run the example)
 
 ```sh
 git clone --recursive https://github.com/thaolt/wreni.git
